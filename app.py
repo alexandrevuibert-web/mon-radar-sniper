@@ -5,13 +5,9 @@ import pandas as pd
 # Configuration de la page
 st.set_page_config(page_title="Sniper Radar", layout="wide")
 
-# Interface de saisie
+# Interface de saisie simplifiée
 st.title("🎯 Sniper Radar 75% : +5% / 15j")
-col1, col2 = st.columns(2)
-with col1:
-    montant_gbp = st.number_input("Montant à investir (£)", value=3000, step=100)
-with col2:
-    fx_rate = st.number_input("Taux GBP/USD", value=1.34, format="%.2f")
+montant_gbp = st.number_input("Montant à investir (£)", value=3000, step=100)
 
 # Paramètres stratégiques
 TICKERS = ["TSLA", "NVDA", "META", "GOOGL", "LMND", "PLTR"]
@@ -20,13 +16,22 @@ RSI_TGT, VIX_TGT, VOL_TGT = 45, 30, 100
 
 @st.cache_data(ttl=300)
 def get_market_data():
+    # Récupération VIX
     vix = yf.download("^VIX", period="1d", progress=False)['Close'].iloc[-1]
+    # Récupération Taux de change GBP/USD en temps réel
+    fx_data = yf.download("GBPUSD=X", period="1d", progress=False)['Close'].iloc[-1]
+    # Récupération Actions
     data = yf.download(TICKERS, period="1y", interval="1d", progress=False)
-    return float(vix), data
+    return float(vix), float(fx_data), data
 
 try:
-    vix_now, data = get_market_data()
-    st.write(f"**VIX :** {vix_now:.1f} (Cible: < {VIX_TGT})")
+    vix_now, fx_rate, data = get_market_data()
+    
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.write(f"**VIX :** {vix_now:.1f} (Cible: < {VIX_TGT})")
+    with col_info2:
+        st.write(f"**Taux GBP/USD actuel :** {fx_rate:.4f}")
     
     results = []
     for ticker in TICKERS:
@@ -61,7 +66,7 @@ try:
             "Sortie SL": f"{p_now*SL_PCT:.2f}$" if is_buy else "-"
         })
 
-    # Affichage du tableau SANS la colonne index (0, 1, 2...)
+    # Affichage sans colonne index
     st.table(pd.DataFrame(results).set_index('Ticker'))
 
 except Exception as e:
