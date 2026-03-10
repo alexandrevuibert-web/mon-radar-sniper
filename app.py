@@ -3,19 +3,39 @@ import yfinance as yf
 import pandas as pd
 
 # Configuration
-st.set_page_config(page_title="Sniper Radar Multi-Assets", layout="wide")
+st.set_page_config(page_title="Sniper Radar Pro", layout="wide")
 
-# Interface
+# Interface de contrôle
 st.title("🎯 Sniper Radar : Actions & Crypto")
-montant_gbp = st.number_input("Montant à investir (£)", value=3000, step=100)
 
-# Paramètres (Compromis RSI 42)
+col_ctrl1, col_ctrl2 = st.columns([1, 1])
+
+with col_ctrl1:
+    montant_gbp = st.number_input("Montant à investir (£)", value=3000, step=100)
+
+with col_ctrl2:
+    # Sélecteur de RSI avec Taux de Succès associés
+    rsi_options = {
+        30: "30 (Succès ~85% - Très Rare)",
+        35: "35 (Succès ~82% - Conservateur)",
+        40: "40 (Succès ~80% - Prudent)",
+        42: "42 (Succès ~76% - Équilibré)",
+        45: "45 (Succès ~72% - Agressif)"
+    }
+    rsi_selected = st.selectbox(
+        "Cible RSI (Probabilité de succès)",
+        options=list(rsi_options.keys()),
+        format_func=lambda x: rsi_options[x],
+        index=3 # Par défaut sur 42
+    )
+
+# Paramètres
 TICKERS_STOCKS = ["TSLA", "NVDA", "META", "GOOGL", "LMND", "PLTR"]
 TICKERS_CRYPTO = ["BTC-USD", "ETH-USD"]
 ALL_ASSETS = TICKERS_STOCKS + TICKERS_CRYPTO
 
 TP_PCT, SL_PCT = 1.05, 0.93
-RSI_TGT, VIX_TGT, VOL_TGT = 42, 30, 100
+VIX_TGT, VOL_TGT = 30, 100
 
 @st.cache_data(ttl=300)
 def get_market_data():
@@ -27,11 +47,7 @@ def get_market_data():
 try:
     vix_now, fx_rate, data = get_market_data()
     
-    col_info1, col_info2 = st.columns(2)
-    with col_info1:
-        st.write(f"**VIX :** {vix_now:.2f} (Cible: < {VIX_TGT})")
-    with col_info2:
-        st.write(f"**Taux GBP/USD :** {fx_rate:.4f}")
+    st.write(f"**Marché :** VIX {vix_now:.2f} | **Change :** GBP/USD {fx_rate:.4f}")
     
     results = []
     for ticker in ALL_ASSETS:
@@ -51,10 +67,9 @@ try:
         boll_inf = (sma_20 - (2 * std_20)).iloc[-1]
         vol_ratio = (vol_df.iloc[-1] / vol_df.rolling(window=20).mean().iloc[-1]) * 100
         
-        # Logique de signal
-        is_buy = (p_now <= ema_200 * 1.03 or p_now <= boll_inf * 1.01) and rsi_now <= RSI_TGT and vix_now <= VIX_TGT and vol_ratio >= VOL_TGT
+        # Logique de signal basée sur le choix dynamique
+        is_buy = (p_now <= ema_200 * 1.03 or p_now <= boll_inf * 1.01) and rsi_now <= rsi_selected and vix_now <= VIX_TGT and vol_ratio >= VOL_TGT
         
-        # On ne calcule les détails d'exécution que si signal ACHAT
         if is_buy:
             decision = "🚨 ACHAT"
             unites = round((montant_gbp * fx_rate) / p_now, 4) if "USD" in ticker else int((montant_gbp * fx_rate) / p_now)
@@ -63,17 +78,14 @@ try:
             pl = f"+{montant_gbp * 0.05:.0f} / -{montant_gbp * 0.07:.0f}"
         else:
             decision = "☕ HOLD"
-            unites = "-"
-            tp = "-"
-            sl = "-"
-            pl = "-"
+            unites, tp, sl, pl = "-", "-", "-", "-"
 
         results.append({
             "Ticker": ticker.replace("-USD", ""),
             "Prix ($)": f"{p_now:.2f}",
             "EMA200": f"{ema_200:.2f}",
             "Boll_Inf": f"{boll_inf:.2f}",
-            f"RSI (<{RSI_TGT})": f"{rsi_now:.2f}",
+            f"RSI (<{rsi_selected})": f"{rsi_now:.2f}",
             f"Vol (>{VOL_TGT}%)": f"{int(vol_ratio)}%",
             "DÉCISION": decision,
             "Unités": unites,
@@ -85,4 +97,4 @@ try:
     st.table(pd.DataFrame(results).set_index('Ticker'))
 
 except Exception as e:
-    st.error(f"Erreur technique : {e}")
+    st.error(f"Erreur : {e}")
