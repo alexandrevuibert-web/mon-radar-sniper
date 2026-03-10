@@ -54,9 +54,19 @@ try:
         # Logique de signal
         is_buy = (p_now <= ema_200 * 1.03 or p_now <= boll_inf * 1.01) and rsi_now <= RSI_TGT and vix_now <= VIX_TGT and vol_ratio >= VOL_TGT
         
-        # P&L
-        p_gain = montant_gbp * 0.05
-        p_loss = montant_gbp * 0.07
+        # On ne calcule les détails d'exécution que si signal ACHAT
+        if is_buy:
+            decision = "🚨 ACHAT"
+            unites = round((montant_gbp * fx_rate) / p_now, 4) if "USD" in ticker else int((montant_gbp * fx_rate) / p_now)
+            tp = f"{(p_now*TP_PCT):.2f}$"
+            sl = f"{(p_now*SL_PCT):.2f}$"
+            pl = f"+{montant_gbp * 0.05:.0f} / -{montant_gbp * 0.07:.0f}"
+        else:
+            decision = "☕ HOLD"
+            unites = "-"
+            tp = "-"
+            sl = "-"
+            pl = "-"
 
         results.append({
             "Ticker": ticker.replace("-USD", ""),
@@ -65,16 +75,14 @@ try:
             "Boll_Inf": f"{boll_inf:.2f}",
             f"RSI (<{RSI_TGT})": f"{rsi_now:.2f}",
             f"Vol (>{VOL_TGT}%)": f"{int(vol_ratio)}%",
-            "DÉCISION": "🚨 ACHAT" if is_buy else "☕ HOLD",
-            "Unités": round((montant_gbp * fx_rate) / p_now, 4),
-            "Sortie TP": f"{(p_now*TP_PCT):.2f}$",
-            "Sortie SL": f"{(p_now*SL_PCT):.2f}$",
-            "P&L (£)": f"+{p_gain:.0f} / -{p_loss:.0f}"
+            "DÉCISION": decision,
+            "Unités": unites,
+            "Sortie TP": tp,
+            "Sortie SL": sl,
+            "P&L (£)": pl
         })
 
-    # Distinction visuelle entre Actions et Crypto
-    df_res = pd.DataFrame(results).set_index('Ticker')
-    st.table(df_res)
+    st.table(pd.DataFrame(results).set_index('Ticker'))
 
 except Exception as e:
     st.error(f"Erreur technique : {e}")
