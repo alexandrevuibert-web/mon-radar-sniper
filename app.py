@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # Configuration
-st.set_page_config(page_title="Sniper Radar Pro", layout="wide")
+st.set_page_config(page_title="Sniper Radar Mobile-First", layout="wide")
 
 st.title("🎯 Sniper Radar : Actions & Crypto")
 
@@ -45,7 +45,6 @@ def get_historical_stats(tickers, rsi_limit):
         
         signals = ((df <= ema200 * 1.03) | (df <= boll_inf * 1.01)) & (rsi <= rsi_limit)
         count = (signals & ~signals.shift(1).fillna(False)).sum()
-        # Arrondi à l'entier pour supprimer les décimales
         stats[ticker] = int(round(count / 5))
     return stats
 
@@ -79,7 +78,6 @@ try:
         boll_inf = (sma_20 - (2 * std_20)).iloc[-1]
         vol_ratio = (vol_df.iloc[-1] / vol_df.rolling(window=20).mean().iloc[-1]) * 100
         
-        # Logique Signal
         is_buy = (p_now <= ema_200 * 1.03 or p_now <= boll_inf * 1.01) and rsi_now <= rsi_selected and vix_now <= VIX_TGT and vol_ratio >= VOL_TGT
         
         if is_buy:
@@ -90,15 +88,16 @@ try:
         else:
             decision, unites, tp, sl, pl = "☕ HOLD", "-", "-", "-", "-"
 
+        # Structure du dictionnaire avec Decision en 2ème position
         results.append({
             "Ticker": ticker.replace("-USD", ""),
+            "DÉCISION": decision,
             "Prix": f"{p_now:.2f}",
-            "EMA200": f"{ema_200:.2f}",
-            "Boll_Inf": f"{boll_inf:.2f}",
             "RSI": f"{rsi_now:.1f}",
             "Vol": f"{int(vol_ratio)}%",
             "Occas/an": freq_stats[ticker],
-            "DÉCISION": decision,
+            "EMA200": f"{ema_200:.2f}",
+            "Boll_Inf": f"{boll_inf:.2f}",
             "Unités": unites,
             "TP": tp,
             "SL": sl,
