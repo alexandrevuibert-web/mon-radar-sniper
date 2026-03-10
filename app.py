@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # Configuration
-st.set_page_config(page_title="Sniper Radar Mobile-First", layout="wide")
+st.set_page_config(page_title="Sniper Radar Pro", layout="wide")
 
 st.title("🎯 Sniper Radar : Actions & Crypto")
 
@@ -42,7 +42,6 @@ def get_historical_stats(tickers, rsi_limit):
         sma20 = df.rolling(window=20).mean()
         std20 = df.rolling(window=20).std()
         boll_inf = sma20 - (2 * std20)
-        
         signals = ((df <= ema200 * 1.03) | (df <= boll_inf * 1.01)) & (rsi <= rsi_limit)
         count = (signals & ~signals.shift(1).fillna(False)).sum()
         stats[ticker] = int(round(count / 5))
@@ -59,7 +58,7 @@ try:
     vix_now, fx_rate, data_live = get_live_data()
     freq_stats = get_historical_stats(ALL_ASSETS, rsi_selected)
     
-    st.write(f"**VIX :** {vix_now:.2f} | **Change :** {fx_rate:.4f}")
+    st.write(f"**VIX :** {vix_now:.2f} (Cible: <{VIX_TGT}) | **Change :** {fx_rate:.4f}")
     
     results = []
     for ticker in ALL_ASSETS:
@@ -78,30 +77,34 @@ try:
         boll_inf = (sma_20 - (2 * std_20)).iloc[-1]
         vol_ratio = (vol_df.iloc[-1] / vol_df.rolling(window=20).mean().iloc[-1]) * 100
         
-        is_buy = (p_now <= ema_200 * 1.03 or p_now <= boll_inf * 1.01) and rsi_now <= rsi_selected and vix_now <= VIX_TGT and vol_ratio >= VOL_TGT
+        # Logique de validation par critère
+        rsi_ok = rsi_now <= rsi_selected
+        vol_ok = vol_ratio >= VOL_TGT
+        price_ok = (p_now <= ema_200 * 1.03) or (p_now <= boll_inf * 1.01)
+        vix_ok = vix_now <= VIX_TGT
+        
+        is_buy = rsi_ok and vol_ok and price_ok and vix_ok
         
         if is_buy:
-            decision = "🚨 ACHAT"
+            decision, pl = "🚨 ACHAT", f"+{montant_gbp * 0.05:.0f}/-{montant_gbp * 0.07:.0f}"
             unites = round((montant_gbp * fx_rate) / p_now, 4) if "USD" in ticker else int((montant_gbp * fx_rate) / p_now)
             tp, sl = f"{(p_now*1.05):.2f}$", f"{(p_now*0.93):.2f}$"
-            pl = f"+{montant_gbp * 0.05:.0f}/-{montant_gbp * 0.07:.0f}"
         else:
-            decision, unites, tp, sl, pl = "☕ HOLD", "-", "-", "-", "-"
+            decision, pl, unites, tp, sl = "☕ HOLD", "-", "-", "-", "-"
 
-        # Structure du dictionnaire avec Decision en 2ème position
         results.append({
             "Ticker": ticker.replace("-USD", ""),
             "DÉCISION": decision,
-            "Prix": f"{p_now:.2f}",
-            "RSI": f"{rsi_now:.1f}",
-            "Vol": f"{int(vol_ratio)}%",
+            "Prix ($)": f"{p_now:.2f}",
+            f"RSI (<{rsi_selected})": f"{rsi_now:.1f} {'✅' if rsi_ok else ''}",
+            f"Vol (>{VOL_TGT}%)": f"{int(vol_ratio)}% {'✅' if vol_ok else ''}",
             "Occas/an": freq_stats[ticker],
             "EMA200": f"{ema_200:.2f}",
             "Boll_Inf": f"{boll_inf:.2f}",
             "Unités": unites,
-            "TP": tp,
-            "SL": sl,
-            "P&L £": pl
+            "Sortie TP": tp,
+            "Sortie SL": sl,
+            "P&L (£)": pl
         })
 
     st.table(pd.DataFrame(results).set_index('Ticker'))
