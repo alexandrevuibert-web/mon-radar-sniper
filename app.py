@@ -4,107 +4,84 @@ import pandas as pd
 import numpy as np
 
 # Configuration
-st.set_page_config(page_title="Sniper Radar Pro", layout="wide")
-
-st.title("🎯 Sniper Radar : Actions & Crypto")
+st.set_page_config(page_title="Sniper Radar Algos", layout="wide")
+st.title("🎯 Sniper Radar : Supports & TP/SL Dynamiques")
 
 # Interface de contrôle
 col_ctrl1, col_ctrl2 = st.columns([1, 1])
 with col_ctrl1:
     montant_gbp = st.number_input("Montant à investir (£)", value=3000, step=100)
 with col_ctrl2:
-    rsi_options = {
-        30: "30 (Succès ~85% | Très Rare)",
-        35: "35 (Succès ~82% | Conservateur)",
-        40: "40 (Succès ~80% | Prudent)",
-        42: "42 (Succès ~76% | Équilibré)",
-        45: "45 (Succès ~72% | Agressif)"
-    }
+    rsi_options = {30: "30 (85%)", 35: "35 (82%)", 40: "40 (80%)", 42: "42 (76%)", 45: "45 (72%)"}
     rsi_selected = st.selectbox("Cible RSI", options=list(rsi_options.keys()), format_func=lambda x: rsi_options[x], index=3)
 
-# Configuration actifs
-TICKERS_STOCKS = ["TSLA", "NVDA", "META", "GOOGL", "LMND", "PLTR"]
-TICKERS_CRYPTO = ["BTC-USD", "ETH-USD"]
-ALL_ASSETS = TICKERS_STOCKS + TICKERS_CRYPTO
+# Configuration
+TICKERS = ["TSLA", "NVDA", "META", "GOOGL", "LMND", "PLTR", "BTC-USD", "ETH-USD"]
 VIX_TGT, VOL_TGT = 30, 100
 
-@st.cache_data(ttl=3600)
-def get_historical_stats(tickers, rsi_limit):
-    stats = {}
-    data_5y = yf.download(tickers, period="5y", interval="1d", progress=False)['Close']
-    for ticker in tickers:
-        df = data_5y[ticker].dropna()
-        delta = df.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rsi = 100 - (100 / (1 + gain/loss))
-        ema200 = df.ewm(span=200, adjust=False).mean()
-        sma20 = df.rolling(window=20).mean()
-        std20 = df.rolling(window=20).std()
-        boll_inf = sma20 - (2 * std20)
-        signals = ((df <= ema200 * 1.03) | (df <= boll_inf * 1.01)) & (rsi <= rsi_limit)
-        count = (signals & ~signals.shift(1).fillna(False)).sum()
-        stats[ticker] = int(round(count / 5))
-    return stats
-
 @st.cache_data(ttl=300)
-def get_live_data():
+def get_data():
     vix = yf.download("^VIX", period="1d", progress=False)['Close'].iloc[-1]
-    fx_rate = yf.download("GBPUSD=X", period="1d", progress=False)['Close'].iloc[-1]
-    data_1y = yf.download(ALL_ASSETS, period="1y", interval="1d", progress=False)
-    return float(vix), float(fx_rate), data_1y
+    fx = yf.download("GBPUSD=X", period="1d", progress=False)['Close'].iloc[-1]
+    raw = yf.download(TICKERS, period="1y", interval="1d", progress=False)
+    return float(vix), float(fx), raw
 
 try:
-    vix_now, fx_rate, data_live = get_live_data()
-    freq_stats = get_historical_stats(ALL_ASSETS, rsi_selected)
-    
-    st.write(f"**VIX :** {vix_now:.2f} (Cible: <{VIX_TGT}) | **Change :** {fx_rate:.4f}")
-    
+    vix_now, fx_rate, data = get_data()
     results = []
-    for ticker in ALL_ASSETS:
-        df = data_live['Close'][ticker].dropna()
-        vol_df = data_live['Volume'][ticker].dropna()
+
+    for t in TICKERS:
+        df = data['Close'][t].dropna()
         p_now = float(df.iloc[-1])
         
-        # Indicateurs
-        ema_200 = df.ewm(span=200, adjust=False).mean().iloc[-1]
+        # --- Indicateurs Classiques ---
+        ema200 = df.ewm(span=200, adjust=False).mean().iloc[-1]
         delta = df.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rsi_now = (100 - (100 / (1 + gain/loss))).iloc[-1]
-        sma_20 = df.rolling(window=20).mean()
-        std_20 = df.rolling(window=20).std()
-        boll_inf = (sma_20 - (2 * std_20)).iloc[-1]
-        vol_ratio = (vol_df.iloc[-1] / vol_df.rolling(window=20).mean().iloc[-1]) * 100
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rsi = (100 - (100 / (1 + gain/loss))).iloc[-1]
+        vol_ratio = (data['Volume'][t].iloc[-1] / data['Volume'][t].rolling(20).mean().iloc[-1]) * 100
         
-        # Logique de validation par critère
-        rsi_ok = rsi_now <= rsi_selected
+        # --- Supports & Résistances (20j) ---
+        res_h = df.rolling(20).max().iloc[-1]  # Résistance
+        sup_l = df.rolling(20).min().iloc[-1]  # Support
+        
+        # --- Logique de Signal ---
+        rsi_ok = rsi <= rsi_selected
         vol_ok = vol_ratio >= VOL_TGT
-        price_ok = (p_now <= ema_200 * 1.03) or (p_now <= boll_inf * 1.01)
-        vix_ok = vix_now <= VIX_TGT
+        price_ok = (p_now <= ema200 * 1.03) or (p_now <= (df.rolling(20).mean() - 2*df.rolling(20).std()).iloc[-1] * 1.01)
         
-        is_buy = rsi_ok and vol_ok and price_ok and vix_ok
-        
+        is_buy = rsi_ok and vol_ok and price_ok and vix_now <= VIX_TGT
+
         if is_buy:
-            decision, pl = "🚨 ACHAT", f"+{montant_gbp * 0.05:.0f}/-{montant_gbp * 0.07:.0f}"
-            unites = round((montant_gbp * fx_rate) / p_now, 4) if "USD" in ticker else int((montant_gbp * fx_rate) / p_now)
-            tp, sl = f"{(p_now*1.05):.2f}$", f"{(p_now*0.93):.2f}$"
+            decision = "🚨 ACHAT"
+            # TP Dynamique : 99% de la Résistance (pour être sûr de sortir)
+            tp_price = res_h * 0.99
+            # SL Dynamique : 98% du Support
+            sl_price = sup_l * 0.98
+            
+            # Sécurité : Si TP trop proche (<2%), on force le +5% historique
+            if (tp_price / p_now) < 1.02: tp_price = p_now * 1.05
+            
+            yield_pct = ((tp_price / p_now) - 1) * 100
+            unites = round((montant_gbp * fx_rate) / p_now, 4) if "USD" in t else int((montant_gbp * fx_rate) / p_now)
+            pl = f"+{yield_pct:.1f}% / -{((1 - sl_price/p_now)*100):.1f}%"
+            tp_str, sl_str = f"{tp_price:.2f}$", f"{sl_price:.2f}$"
         else:
-            decision, pl, unites, tp, sl = "☕ HOLD", "-", "-", "-", "-"
+            decision, tp_str, sl_str, pl, unites = "☕ HOLD", "-", "-", "-", "-"
 
         results.append({
-            "Ticker": ticker.replace("-USD", ""),
+            "Ticker": t.replace("-USD", ""),
             "DÉCISION": decision,
             "Prix ($)": f"{p_now:.2f}",
-            f"RSI (<{rsi_selected})": f"{rsi_now:.1f} {'✅' if rsi_ok else ''}",
-            f"Vol (>{VOL_TGT}%)": f"{int(vol_ratio)}% {'✅' if vol_ok else ''}",
-            "Occas/an": freq_stats[ticker],
-            "EMA200": f"{ema_200:.2f}",
-            "Boll_Inf": f"{boll_inf:.2f}",
+            "RSI": f"{rsi:.1f} {'✅' if rsi_ok else ''}",
+            "S. Hist (20j)": f"{sup_l:.2f}",
+            "R. Hist (20j)": f"{res_h:.2f}",
+            "EMA200": f"{ema200:.2f}",
             "Unités": unites,
-            "Sortie TP": tp,
-            "Sortie SL": sl,
-            "P&L (£)": pl
+            "TP Dyn": tp_str,
+            "SL Dyn": sl_str,
+            "P&L Est.": pl
         })
 
     st.table(pd.DataFrame(results).set_index('Ticker'))
