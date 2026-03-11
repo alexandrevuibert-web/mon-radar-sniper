@@ -60,4 +60,59 @@ try:
     for t in TICKERS:
         df = data['Close'][t].dropna()
         vol_hist = data['Volume'][t].dropna()
-        p_now = float(
+        p_now = float(df.iloc[-1])
+        
+        # Indicateurs
+        ema200 = df.ewm(span=200, adjust=False).mean().iloc[-1]
+        sma20 = df.rolling(20).mean()
+        boll_inf = (sma20 - (2 * df.rolling(20).std())).iloc[-1]
+        delta = df.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rsi_now = (100 - (100 / (1 + gain/loss))).iloc[-1]
+        vol_ratio = (vol_hist.iloc[-1] / vol_hist.rolling(20).mean().iloc[-1]) * 100
+        
+        # Niveaux Horizontaux
+        res_h = df.rolling(20).max().iloc[-1]
+        sup_l = df.rolling(20).min().iloc[-1]
+        
+        # Logique Signal
+        rsi_ok = rsi_now <= rsi_selected
+        vol_ok = vol_ratio >= VOL_TGT
+        price_ok = (p_now <= ema200 * 1.03) or (p_now <= boll_inf * 1.01) or (p_now <= sup_l * 1.015)
+        
+        is_buy = rsi_ok and vol_ok and price_ok and vix_now <= VIX_TGT
+
+        if is_buy:
+            decision = "🚨 ACHAT"
+            tp_price, sl_price = res_h * 0.99, sup_l * 0.98
+            if (tp_price / p_now) < 1.03: tp_price = p_now * 1.05
+            unites = round((montant_gbp * fx_rate) / p_now, 4) if "USD" in t else int((montant_gbp * fx_rate) / p_now)
+            gain_val = int(montant_gbp * ((tp_price/p_now)-1))
+            loss_val = int(montant_gbp * (1-(sl_price/p_now)))
+            pl_str = f"+{gain_val}£ ({(((tp_price/p_now)-1)*100):.1f}%) / -{loss_val}£ ({(((1-sl_price/p_now)*100)):.1f}%)"
+        else:
+            decision, pl_str, unites, tp_price, sl_price = "☕ HOLD", "-", "-", "-", "-"
+
+        results.append({
+            "Ticker": t.replace("-USD", ""),
+            "DÉCISION": decision,
+            "Prix": f"{p_now:.2f}",
+            f"RSI (<{rsi_selected})": f"{rsi_now:.1f} {'✅' if rsi_ok else ''}",
+            f"Vol (>{VOL_TGT}%)": f"{int(vol_ratio)}% {'✅' if vol_ok else ''}",
+            "Occas/an": freq_stats[t],
+            "EMA200": f"{ema200:.2f}",
+            "Boll_Inf": f"{boll_inf:.2f}",
+            "S. Hist": f"{sup_l:.2f}",
+            "R. Hist": f"{res_h:.2f}",
+            "Unités": unites,
+            "TP Dyn": f"{tp_price:.2f}$" if is_buy else "-",
+            "SL Dyn": f"{sl_price:.2f}$" if is_buy else "-",
+            "P&L Est.": pl_str
+        })
+
+    st.table(pd.DataFrame(results).set_index('Ticker'))
+    st.write(f"**VIX :** {vix_now:.2f} (Cible < {VIX_TGT}) | **GBP/USD :** {fx_rate:.4f}")
+
+except Exception as e:
+    st.error(f"Erreur : {e}")
